@@ -1,0 +1,34 @@
+# Dependencies and generated builds
+node_modules/
+dist/
+__pycache__/
+
+# Local hosting state and credentials
+.wrangler/
+.env*
+!env.example
+
+# Private materials and local verification
+本地备份/
+Cloudflare发布/
+artifacts/
+清理记录.json
+PRODUCT.md
+.impeccable/
+private/
+private-data/
+local_materials/
+backups/
+
+# Temporary files and archives
+.DS_Store
+*.zip
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+tmp/
+temp/
+.work/
