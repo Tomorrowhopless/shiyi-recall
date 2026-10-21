@@ -2,7 +2,7 @@
 
 拾忆是一个中文主动回忆与间隔复习网站，支持数学公式、解题方法和英语单词词组。无需登录，卡片、笔记和学习进度保存在访问者自己的浏览器中。
 
-[在线体验](https://shiyi-recall.pages.dev/) · [使用说明](制作与使用说明.md)
+[GitHub Pages 在线使用](https://tomorrowhopless.github.io/shiyi-recall/) · [Cloudflare 在线使用](https://shiyi-recall.pages.dev/) · [使用说明](制作与使用说明.md)
 
 ## 学习内容
 
@@ -70,7 +70,7 @@ npm run build
 
 ## 部署到 GitHub Pages
 
-GitHub Pages 使用 GitHub Actions 构建并发布 `dist/`。仓库设置中的 Pages 来源应选择 **GitHub Actions**。
+仓库已包含 [GitHub Actions 工作流](.github/workflows/pages.yml)：向 `main` 提交后自动安装依赖、运行测试、构建并发布 `dist/`。仓库设置中的 Pages 来源应选择 **GitHub Actions**。
 
 仓库项目站点通常位于 `https://用户名.github.io/仓库名/`，构建时须带上仓库子路径：
 
