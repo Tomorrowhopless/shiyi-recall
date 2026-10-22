@@ -3,7 +3,7 @@ const ERROR_MESSAGES = {
   'voice-unavailable': '所选英语语音不可用，请重新播放或检查系统语音设置。',
   'audio-busy': '音频设备正忙，请稍后重新播放。',
   'audio-hardware': '音频设备不可用，请检查声音输出后重试。',
-  'not-allowed': '浏览器未允许朗读，请点击播放按钮重试并检查声音权限。',
+  'not-allowed': '浏览器未允许自动朗读，请点击重播按钮重试并检查声音权限。',
   'network': '语音服务连接失败，请检查网络或安装本地英语语音后重试。',
   'synthesis-unavailable': '系统朗读服务不可用，请检查系统语音设置后重试。',
   'text-too-long': '这段文字过长，请缩短后再播放。',

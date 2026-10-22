@@ -8,6 +8,7 @@ import { removableExamples, prepareImport } from './import-workflow.js';
 import { loadData, saveData, recoverData, STORAGE_KEY } from './storage.js';
 import { getStudyContent } from './english-study.js';
 import { createEnglishSpeech } from './english-speech.js';
+import { createEnglishAutoplay } from './english-autoplay.js';
 import { version as APP_VERSION } from '../package.json';
 
 const app = document.querySelector('#app');
@@ -40,6 +41,7 @@ let editingId = null;
 let returnFocus = null;
 let speechState = { status: 'idle', message: '' };
 const englishSpeech = createEnglishSpeech({ onState(state) { speechState = state; updateSpeechStatus(); } });
+const englishAutoplay = createEnglishAutoplay({ speak: text => englishSpeech.speak(text), cancel: () => englishSpeech.cancel() });
 const englishDirection = () => data.settings.englishDirection || 'en-zh';
 if(!storageError&&!loaded.firstRun){
   const upgrade=upgradeMathLibrary(data);
@@ -127,7 +129,11 @@ function changeScope(nextSubject,nextCourse='all',nextType='all') {
 function englishDirectionControls() {
   if (subject !== 'english' && !selectedCards().some(card => card.subject === 'english')) return '';
   const reverse = englishDirection() === 'zh-en';
-  return `<section class="english-direction" aria-label="英语背诵方向"><span>英语背诵</span><div class="direction-buttons" role="group" aria-label="选择英语背诵方向"><button data-english-direction="en-zh" aria-pressed="${!reverse}">英背中</button><button data-english-direction="zh-en" aria-pressed="${reverse}">中背英</button></div><p>${reverse ? '看中文，回想英文；揭晓后可播放英文读音。' : '看英文，回想中文；点击按钮可听英文读音。'}</p></section>`;
+  return `<section class="english-direction" aria-label="英语背诵方向"><span>英语背诵</span><div class="direction-buttons" role="group" aria-label="选择英语背诵方向"><button data-english-direction="en-zh" aria-pressed="${!reverse}">英背中</button><button data-english-direction="zh-en" aria-pressed="${reverse}">中背英</button></div><p>${reverse ? '看中文，回想英文；揭晓后自动朗读，可重播。' : '看英文，回想中文；英文自动朗读，可重播。'}</p></section>`;
+}
+function syncEnglishAutoplay() {
+  const card = page === 'study' && session?.ids.length ? data.cards.find(card => card.id === session.ids[0]) : null;
+  englishAutoplay.sync({ page, card, direction: englishDirection(), revealed, blocked: editor.open || confirmation.open || document.hidden });
 }
 function updateSpeechStatus() {
   const busy = ['loading', 'speaking'].includes(speechState.status);
@@ -140,10 +146,10 @@ function updateSpeechStatus() {
   if (stop) stop.hidden = !busy;
 }
 function pronunciationControls(card) {
-  return `<div class="english-pronunciation"><div class="pronunciation-actions"><button class="button text speak" data-action="speak" data-id="${esc(card.id)}">${icon('speaker')} 播放英文读音</button><button class="button text stop-speech" data-action="stop-speech" hidden>停止朗读</button></div><span id="english-speech-status" class="speech-status" role="status" aria-live="polite"></span></div>`;
+  return `<div class="english-pronunciation"><div class="pronunciation-actions"><button class="button text speak" data-action="speak" data-id="${esc(card.id)}">${icon('speaker')} 重播英文读音</button><button class="button text stop-speech" data-action="stop-speech" hidden>停止朗读</button></div><span id="english-speech-status" class="speech-status" role="status" aria-live="polite"></span></div>`;
 }
 function showAnswer() {
-  englishSpeech.cancel(); revealed = true; render();
+  revealed = true; render();
   document.querySelector('.rating-3')?.focus({preventScroll:true});
 }
 function studyView() {
@@ -173,7 +179,7 @@ function reviewView(card) {
   const previews = revealed?previewRatings(card):[];
   const english = card.subject === 'english';
   const instruction = english && !content.isReverse && card.kind !== 'cloze' ? '根据英文，回想中文含义' : content.instruction;
-  return `<section class="study-card review-card"><div class="review-meta"><span class="subject-label ${card.subject}">${card.subject==='math'?MATH_COURSES[card.mathCourse].name:subjects[card.subject].name}</span>${card.subject==='math'?`<span class="math-content-label">${MATH_CONTENT_TYPES[card.contentType]}</span>`:''}${english?`<span class="english-mode-label">${content.isReverse?'中背英':'英背中'}</span>`:''}<span>${card.kind==='cloze'?(content.isReverse?'整句回忆':'填空回忆'):'问答回忆'} · ${card.schedule.reps?'复习':'新卡'}</span><button class="icon-button" data-action="edit" data-id="${esc(card.id)}" aria-label="编辑当前卡片">${icon('edit')}</button></div><div class="question-area"><p class="question-instruction">${esc(instruction)}</p><h2 class="question math-content" ${english?`lang="${content.isReverse?'zh-CN':'en'}"`:''}>${esc(content.question)}</h2>${english&&!content.isReverse?pronunciationControls(card):''}${content.isReverse&&!revealed?'<p class="pronunciation-hint">揭晓英文答案后，可听读音并跟读。</p>':''}</div>${revealed?`<div class="answer-area"><div class="answer-label">${esc(content.answerLabel)}</div><div class="answer math-content" ${content.isReverse?'lang="en"':''}>${esc(content.answer)}</div>${content.isReverse?pronunciationControls(card):''}${content.explanation?`<div class="answer-explanation math-content">${esc(content.explanation)}</div>`:''}${card.notes?`<div class="card-notes math-content"><strong>理解与提示</strong><p>${esc(card.notes)}</p></div>`:''}</div><div class="rating-area"><p>这次，你记得怎么样？<span>按真实感受选择</span></p><div class="rating-buttons">${previews.map(p=>`<button class="rating rating-${p.rating}" data-rating="${p.rating}"><span><kbd>${p.rating}</kbd>${ratingNames[p.rating]}</span><small>${relative(p.intervalMs)}后</small></button>`).join('')}</div></div>`:`<div class="reveal-area"><p>想不起来也没关系，先尝试，再揭晓。</p><button class="button primary reveal-button" data-action="reveal">显示答案 <span class="key-on-dark">空格</span></button></div>`}</section>`;
+  return `<section class="study-card review-card"><div class="review-meta"><span class="subject-label ${card.subject}">${card.subject==='math'?MATH_COURSES[card.mathCourse].name:subjects[card.subject].name}</span>${card.subject==='math'?`<span class="math-content-label">${MATH_CONTENT_TYPES[card.contentType]}</span>`:''}${english?`<span class="english-mode-label">${content.isReverse?'中背英':'英背中'}</span>`:''}<span>${card.kind==='cloze'?(content.isReverse?'整句回忆':'填空回忆'):'问答回忆'} · ${card.schedule.reps?'复习':'新卡'}</span><button class="icon-button" data-action="edit" data-id="${esc(card.id)}" aria-label="编辑当前卡片">${icon('edit')}</button></div><div class="question-area"><p class="question-instruction">${esc(instruction)}</p><h2 class="question math-content" ${english?`lang="${content.isReverse?'zh-CN':'en'}"`:''}>${esc(content.question)}</h2>${english&&!content.isReverse?pronunciationControls(card):''}${content.isReverse&&!revealed?'<p class="pronunciation-hint">揭晓英文答案后会自动朗读，可再点重播。</p>':''}</div>${revealed?`<div class="answer-area"><div class="answer-label">${esc(content.answerLabel)}</div><div class="answer math-content" ${content.isReverse?'lang="en"':''}>${esc(content.answer)}</div>${content.isReverse?pronunciationControls(card):''}${content.explanation?`<div class="answer-explanation math-content">${esc(content.explanation)}</div>`:''}${card.notes?`<div class="card-notes math-content"><strong>理解与提示</strong><p>${esc(card.notes)}</p></div>`:''}</div><div class="rating-area"><p>这次，你记得怎么样？<span>按真实感受选择</span></p><div class="rating-buttons">${previews.map(p=>`<button class="rating rating-${p.rating}" data-rating="${p.rating}"><span><kbd>${p.rating}</kbd>${ratingNames[p.rating]}</span><small>${relative(p.intervalMs)}后</small></button>`).join('')}</div></div>`:`<div class="reveal-area"><p>想不起来也没关系，先尝试，再揭晓。</p><button class="button primary reveal-button" data-action="reveal">显示答案 <span class="key-on-dark">空格</span></button></div>`}</section>`;
 }
 function filteredLibraryCards() {
   return selectedCards().filter(c=>vocabularyFilter==='all'||c.subject==='english'&&c.tags.includes(vocabularyFilter==='word'?'单词':'词组'))
@@ -219,6 +225,7 @@ function render() {
   app.innerHTML=shell(({study:studyView,library:libraryView,history:historyView,backup:backupView})[page]());
   math();
   updateSpeechStatus();
+  syncEnglishAutoplay();
 }
 function navigate(next) {
   if (!['study','library','history','backup'].includes(next)) return;
@@ -232,7 +239,7 @@ function openEditor(id) {
   const c=data.cards.find(c=>c.id===id);
   returnFocus=document.activeElement;
   editor.innerHTML=`<form id="card-form"><div class="dialog-header"><div><h2 id="editor-title">${c?'编辑卡片':'添加一张卡片'}</h2><p>一个清晰的问题，就是一次好的回想。</p></div><button class="icon-button" type="button" data-action="close-editor" aria-label="关闭编辑器">${icon('close')}</button></div><div class="editor-scroll"><div class="form-two"><label>学科<select name="subject">${Object.entries(subjects).map(([k,s])=>`<option value="${k}" ${(c?.subject || (subject==='all'?'math':subject))===k?'selected':''}>${s.name}</option>`).join('')}</select></label><label>卡片类型<select name="kind"><option value="basic" ${c?.kind!=='cloze'?'selected':''}>问答卡</option><option value="cloze" ${c?.kind==='cloze'?'selected':''}>填空卡</option></select></label></div><div id="math-editor-fields" class="form-two"><label>数学部分<select name="mathCourse">${Object.entries(MATH_COURSES).map(([k,course])=>`<option value="${k}" ${(c?.mathCourse || (mathCourse==='all'?'calculus':mathCourse))===k?'selected':''}>${course.name}</option>`).join('')}</select></label><label>内容分类<select name="contentType">${Object.entries(MATH_CONTENT_TYPES).map(([k,label])=>`<option value="${k}" ${(c?.contentType || (mathContentFilter==='all'?'formula':mathContentFilter))===k?'selected':''}>${label}</option>`).join('')}</select></label></div><label><span id="front-label">问题 / 填空原文</span><textarea name="front" rows="3" required maxlength="12000" placeholder="例如：写出分部积分公式，或说明如何识别换元积分题。">${esc(c?.front || '')}</textarea></label><p class="field-hint">公式：$\\int u\\,dv$ · 填空：连续不一定 {{c1::可导}}。所有空缺同时隐藏。</p><label>答案 / 补充解释<textarea name="back" rows="3" maxlength="16000" placeholder="问答卡填写答案；填空卡可选填解释。">${esc(c?.back || '')}</textarea></label><label>理解与提示（选填）<textarea name="notes" rows="2" maxlength="16000" placeholder="适用条件、易错点，或一个帮助理解的例子。">${esc(c?.notes || '')}</textarea></label><label>标签（选填，用逗号分隔）<input name="tags" maxlength="600" value="${esc(c?.tags?.join('，') || '')}" placeholder="例如：泰勒展开，积分"></label><details class="preview-details" open><summary>实时预览</summary><div id="editor-preview" class="editor-preview"></div></details><p id="form-error" class="form-error" role="alert"></p></div><div class="dialog-footer"><button type="button" class="button text" data-action="close-editor">取消</button><button type="submit" class="button primary">${c?'保存修改':'保存卡片'}</button></div></form>`;
-  updatePreview(); editor.showModal();
+  updatePreview(); editor.showModal(); syncEnglishAutoplay();
 }
 function updatePreview() {
   const form=editor.querySelector('form');if(!form)return;
@@ -245,7 +252,7 @@ function updatePreview() {
 function closeEditor() { editor.close(); returnFocus?.isConnected&&returnFocus.focus(); }
 function confirmAction(title, body, callback, label='确认删除') {
   confirmation.innerHTML=`<div class="dialog-header"><h2 id="confirmation-title">${esc(title)}</h2><button class="icon-button" data-action="close-confirmation" aria-label="取消">${icon('close')}</button></div><p class="confirmation-body">${esc(body)}</p><div class="dialog-footer"><button class="button text" data-action="close-confirmation">取消</button><button class="button danger" id="confirm-action">${esc(label)}</button></div>`;
-  confirmation.querySelector('#confirm-action').addEventListener('click',()=>{callback();confirmation.close();},{once:true});confirmation.showModal();
+  confirmation.querySelector('#confirm-action').addEventListener('click',()=>{callback();confirmation.close();},{once:true});confirmation.showModal();syncEnglishAutoplay();
 }
 function download(name,text) { const blob=new Blob([text],{type:'application/json;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000); }
 function undoReview() {
@@ -402,7 +409,11 @@ document.addEventListener('keydown',event=>{
 });
 window.addEventListener('storage',event=>{if(event.key===STORAGE_KEY){notify('另一个标签页更新了资料。请刷新后继续，以读取最新进度。');}});
 window.addEventListener('hashchange',()=>{const next=location.hash.slice(1);if(['study','library','history','backup'].includes(next)){englishSpeech.cancel();page=next;render();}});
-window.addEventListener('pagehide',()=>englishSpeech.cancel());
+editor.addEventListener('close',syncEnglishAutoplay);
+confirmation.addEventListener('close',syncEnglishAutoplay);
+document.addEventListener('visibilitychange',syncEnglishAutoplay);
+window.addEventListener('pageshow',syncEnglishAutoplay);
+window.addEventListener('pagehide',()=>englishAutoplay.reset());
 setInterval(()=>{if(page==='study'&&!session&&!editor.open&&!confirmation.open)render();},60000);
 const initial=location.hash.slice(1);if(['study','library','history','backup'].includes(initial))page=initial;
 if(loaded.firstRun){try{saveData(data);}catch(error){storageError=error.message;}}
