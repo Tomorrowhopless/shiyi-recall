@@ -1,3 +1,5 @@
+import { englishSpeechText, selectEnglishVoice } from './english-speech-text.js';
+
 const ERROR_MESSAGES = {
   'language-unavailable': '英语语音不可用，请在系统设置中添加英语语音后重试。',
   'voice-unavailable': '所选英语语音不可用，请重新播放或检查系统语音设置。',
@@ -18,7 +20,9 @@ export function createEnglishSpeech({
   let token = 0;
   let current = null; // Keep a strong reference for browsers that otherwise stop utterances early.
   let pendingCleanup = null;
-  const emit = (status, message = '') => onState({ status, message });
+  let startTimer = null;
+  function clearStartTimer() { clearTimeout(startTimer); startTimer = null; }
+  const emit = (status, message = '', voice) => onState({ status, message, ...(voice ? { voice } : {}) });
   function clearPending() {
     pendingCleanup?.();
     pendingCleanup = null;
@@ -26,6 +30,7 @@ export function createEnglishSpeech({
   function stop() {
     token++;
     clearPending();
+    clearStartTimer();
     current = null;
     try { synthesis?.cancel(); } catch { /* Cancellation must remain safe on a torn-down page. */ }
   }
@@ -33,7 +38,7 @@ export function createEnglishSpeech({
   function speak(text) {
     stop();
     const request = token;
-    const content = typeof text === 'string' ? text.trim() : '';
+    const content = englishSpeechText(text);
     if (!content) { emit('idle', '当前没有可朗读的英文。'); return; }
     if (!synthesis || typeof synthesis.speak !== 'function' || typeof synthesis.getVoices !== 'function' || typeof Utterance !== 'function') {
       emit('error', '当前浏览器不支持朗读，请换用支持系统语音的浏览器。'); return;
@@ -42,42 +47,87 @@ export function createEnglishSpeech({
     function launch(voices) {
       if (request !== token) return;
       clearPending();
-      const english = voices.filter(voice => /^en(?:[-_]|$)/i.test(voice.lang || ''));
-      const selected = english.find(voice => voice.localService && /^en[-_]US$/i.test(voice.lang))
-        || english.find(voice => voice.localService)
-        || english.find(voice => /^en[-_]US$/i.test(voice.lang))
-        || english[0];
-      if (voices.length && !selected) {
+      const selected = selectEnglishVoice(voices);
+      if (!selected) {
         emit('error', '未找到英语语音，请在系统语音设置中添加英语语音后重试。'); return;
       }
-      try {
-        const utterance = new Utterance(content);
-        current = utterance;
-        utterance.lang = selected?.lang || 'en-US';
-        utterance.rate = 0.85;
-        if (selected) utterance.voice = selected;
-        utterance.onstart = () => {
-          if (request === token && current === utterance) emit('speaking', '正在朗读');
-        };
-        utterance.onend = () => {
-          if (request !== token || current !== utterance) return;
-          current = null;
-          emit('ended', '朗读完成');
-        };
-        utterance.onerror = event => {
-          if (request !== token || current !== utterance) return;
-          current = null;
-          // Native engines report these for normal stop/replacement, not a failed voice.
-          if (event?.error === 'canceled' || event?.error === 'interrupted') { emit('idle'); return; }
-          emit('error', ERROR_MESSAGES[event?.error] || '朗读未能完成，请重新播放或检查系统英语语音。');
-        };
-        synthesis.speak(utterance);
-      } catch {
+      function attempt(selectedVoice, allowFallback, fallback = false) {
         if (request !== token) return;
-        current = null;
-        emit('error', '无法启动朗读，请重新点击播放或检查系统语音设置。');
+        clearStartTimer();
+        const voice = { name: selectedVoice.name || '', lang: selectedVoice.lang, localService: selectedVoice.localService === true };
+        emit('loading', fallback ? '正在切换本地英语语音…' : '正在准备英语语音…', voice);
+        if (request !== token) return;
+        function tryLocalFallback() {
+          if (!allowFallback || request !== token) return false;
+          const local = voicesNow().filter(candidate => candidate.localService === true && candidate !== selectedVoice
+            && !(candidate.name === selectedVoice.name && candidate.lang === selectedVoice.lang));
+          const standard = ['Samantha', 'Alex', 'Daniel'].map(name => selectEnglishVoice(local.filter(candidate => new RegExp(`\\b${name}\\b`, 'i').test(candidate.name || '')))).find(Boolean)
+            || selectEnglishVoice(local);
+          if (!standard) return false;
+          // Invalidate the previous utterance before cancel() can dispatch its callbacks.
+          clearStartTimer();
+          current = null;
+          try { synthesis.cancel(); } catch { /* The explicit replacement may still work. */ }
+          if (request !== token) return true;
+          attempt(standard, false, true);
+          return true;
+        }
+        try {
+          const utterance = new Utterance(content);
+          let started = false;
+          current = utterance;
+          utterance.lang = selectedVoice.lang;
+          utterance.rate = 0.85;
+          utterance.voice = selectedVoice;
+          utterance.onstart = () => {
+            if (request !== token || current !== utterance) return;
+            started = true;
+            clearStartTimer();
+            emit('speaking', '正在朗读', voice);
+          };
+          utterance.onend = () => {
+            if (request !== token || current !== utterance) return;
+            clearStartTimer();
+            current = null;
+            if (!started) {
+              if (tryLocalFallback()) return;
+              emit('error', '英语语音未实际开始播放，请重新播放或检查系统英语语音。', voice);
+              return;
+            }
+            emit('ended', '朗读完成', voice);
+          };
+          utterance.onerror = event => {
+            if (request !== token || current !== utterance) return;
+            clearStartTimer();
+            current = null;
+            // Native engines report these for normal stop/replacement, not a failed voice.
+            if (event?.error === 'canceled' || event?.error === 'interrupted') { emit('idle'); return; }
+            if (['network', 'voice-unavailable'].includes(event?.error) && tryLocalFallback()) return;
+            emit('error', ERROR_MESSAGES[event?.error] || '朗读未能完成，请重新播放或检查系统英语语音。', voice);
+          };
+          // Some engines remain silent without dispatching any native event.
+          startTimer = setTimeout(() => {
+            if (request !== token || current !== utterance || started) return;
+            clearStartTimer();
+            current = null;
+            if (tryLocalFallback()) return;
+            try { synthesis.cancel(); } catch { /* Report failure even if cancellation fails. */ }
+            if (request !== token) return;
+            emit('error', '英语语音未能开始，请点击重播或检查系统声音与英语语音。', voice);
+          }, 8000);
+          synthesis.resume?.();
+          if (request !== token || current !== utterance) return;
+          synthesis.speak(utterance);
+        } catch {
+          if (request !== token) return;
+          clearStartTimer();
+          current = null;
+          emit('error', '无法启动朗读，请重新点击播放或检查系统语音设置。', voice);
+        }
       }
+      attempt(selected, true);
     }
+
     function voicesNow() {
       try { const voices = synthesis.getVoices(); return Array.isArray(voices) ? voices : []; }
       catch { return []; }
