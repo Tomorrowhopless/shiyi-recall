@@ -43,7 +43,7 @@ test('editing a reviewed card preserves its learning schedule', () => {
 });
 test('backup roundtrip keeps cards, notes, ratings and local settings', () => {
   const r = reviewCard(make({notes:'<script>plain text only</script>'}),3,now);
-  const data = {cards:[r.card],logs:[r.log],settings:{dailyNewLimit:10,mathLibraryVersion:0}};
+  const data = {cards:[r.card],logs:[r.log],settings:{dailyNewLimit:10,mathLibraryVersion:0,englishDirection:'en-zh'}};
   const parsed = parseBackup(exportBackup(data,now));
   assert.deepEqual(parsed,data);
 });
@@ -51,7 +51,7 @@ test('merge preserves more recent progress even if an unreviewed backup was edit
   const first = make();
   const reviewed = reviewCard(first,3,now);
   const edited = updateCard(first,{front:'更新的题目'},new Date(+now+60000));
-  const current = {cards:[reviewed.card],logs:[reviewed.log],settings:{dailyNewLimit:10,mathLibraryVersion:0}};
+  const current = {cards:[reviewed.card],logs:[reviewed.log],settings:{dailyNewLimit:10,mathLibraryVersion:0,englishDirection:'en-zh'}};
   const incoming = {cards:[edited],logs:[reviewed.log],settings:{dailyNewLimit:20}};
   const merged = mergeBackup(current,incoming);
   assert.equal(merged.cards[0].front,'更新的题目');

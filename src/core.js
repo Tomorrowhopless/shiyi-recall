@@ -6,7 +6,7 @@ export { Rating };
 export const SUBJECTS = ['math', 'physics', 'english'];
 export const MATH_COURSE_KEYS = ['calculus', 'probability', 'linear-algebra'];
 export const MATH_TYPE_KEYS = ['formula', 'problem'];
-export const DEFAULT_SETTINGS = { dailyNewLimit: 20, mathLibraryVersion: 0 };
+export const DEFAULT_SETTINGS = { dailyNewLimit: 20, mathLibraryVersion: 0, englishDirection: 'en-zh' };
 export const BACKUP_VERSION = 1;
 const MAX_CARDS = 20000;
 const MAX_LOGS = 200000;
@@ -156,7 +156,9 @@ export function parseBackup(text) {
   if (!Number.isInteger(dailyNewLimit) || dailyNewLimit < 1 || dailyNewLimit > 200) fail('每日新卡数量应在 1 到 200 之间');
   const mathLibraryVersion = data.settings?.mathLibraryVersion ?? 0;
   if (!Number.isInteger(mathLibraryVersion) || mathLibraryVersion < 0 || mathLibraryVersion > 10000) fail('数学内容版本无效');
-  return { cards, logs, settings: { dailyNewLimit, mathLibraryVersion } };
+  const englishDirection = data.settings?.englishDirection ?? 'en-zh';
+  if (!['en-zh', 'zh-en'].includes(englishDirection)) fail('英语背诵方向无效');
+  return { cards, logs, settings: { dailyNewLimit, mathLibraryVersion, englishDirection } };
 }
 export function exportBackup(data, now = new Date()) {
   const payload = { app: 'recall-garden', version: BACKUP_VERSION, exportedAt: iso(now), cards: data.cards, logs: data.logs ?? [], settings: { ...DEFAULT_SETTINGS, ...data.settings } };

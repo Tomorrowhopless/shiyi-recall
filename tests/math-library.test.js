@@ -6,7 +6,7 @@ import { upgradeMathLibrary, scopeCards } from '../src/math-library.js';
 const now = new Date('2026-10-20T18:00:00Z');
 test('one-time math upgrade preserves every English field, review record and daily setting',()=>{
   const reviewed=reviewCard(createCard({subject:'english',front:'retain',back:'记住',notes:'自己的笔记'},now),3,now);
-  const original={cards:[reviewed.card],logs:[reviewed.log],settings:{dailyNewLimit:7,mathLibraryVersion:0}};
+  const original={cards:[reviewed.card],logs:[reviewed.log],settings:{...DEFAULT_SETTINGS,dailyNewLimit:7,mathLibraryVersion:0}};
   const snapshot=structuredClone(original);const result=upgradeMathLibrary(original,now);
   assert.deepEqual(original,snapshot);assert.deepEqual(result.data.cards[0],original.cards[0]);assert.equal(result.data.logs,original.logs);
   assert.equal(result.data.settings.dailyNewLimit,7);assert.equal(result.data.settings.mathLibraryVersion,MATH_CONTENT_VERSION);

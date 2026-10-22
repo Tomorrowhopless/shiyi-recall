@@ -66,3 +66,13 @@ test('recovery cannot overwrite readable data or accept changed expected raw',()
   store.externalWrite('broken');loadData();
   assert.throws(()=>recoverData(sample(),'wrong'),/其他标签页/);assert.equal(store.value(),'broken');
 });
+test('English direction persists through normal guarded storage writes without changing cards or reviews',()=>{
+  const initial=sample();const store=storage(exportBackup(initial));const loaded=loadData();
+  const next={...loaded.data,settings:{...loaded.data.settings,englishDirection:'zh-en'}};
+  saveData(next);const restored=loadData().data;
+  assert.equal(restored.settings.englishDirection,'zh-en');
+  assert.deepEqual(restored.cards,initial.cards);assert.deepEqual(restored.logs,initial.logs);
+  const external=exportBackup({...restored,settings:{...restored.settings,englishDirection:'en-zh'}});
+  store.externalWrite(external);
+  assert.throws(()=>saveData(next),/另一个标签页/);assert.equal(store.value(),external);
+});

@@ -6,6 +6,9 @@ import { MATH_COURSES, MATH_CONTENT_TYPES, MATH_SOURCES } from './math-content.j
 import { activeCards, scopeCards, upgradeMathLibrary } from './math-library.js';
 import { removableExamples, prepareImport } from './import-workflow.js';
 import { loadData, saveData, recoverData, STORAGE_KEY } from './storage.js';
+import { getStudyContent } from './english-study.js';
+import { createEnglishSpeech } from './english-speech.js';
+import { version as APP_VERSION } from '../package.json';
 
 const app = document.querySelector('#app');
 const editor = document.querySelector('#editor');
@@ -35,6 +38,9 @@ let backupTextSnapshot = '';
 let toastTimer;
 let editingId = null;
 let returnFocus = null;
+let speechState = { status: 'idle', message: '' };
+const englishSpeech = createEnglishSpeech({ onState(state) { speechState = state; updateSpeechStatus(); } });
+const englishDirection = () => data.settings.englishDirection || 'en-zh';
 if(!storageError&&!loaded.firstRun){
   const upgrade=upgradeMathLibrary(data);
   if(upgrade.changed){try{saveData(upgrade.data);data=upgrade.data;}catch(error){storageError=error.message;}}
@@ -100,7 +106,7 @@ function shell(content) {
     <nav aria-label="主导航" class="nav-main">${[['study','today','今日学习'],['library','cards','我的卡片'],['history','chart','学习记录']].map(([key,i,label])=>`<a href="#${key}" data-page="${key}" class="nav-item ${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${icon(i)}<span>${label}</span>${key==='study'&&stats.due?`<span class="nav-count">${stats.due}</span>`:''}</a>`).join('')}</nav>
     <div class="nav-divider"></div><div class="sidebar-label">数学</div><nav aria-label="数学分类" class="nav-math">${Object.entries(MATH_COURSES).map(([key,c])=>{const cards=data.cards.filter(card=>card.subject==='math'&&card.mathCourse===key);return `<div class="math-nav-group ${subject==='math'&&mathCourse===key?'current-course':''}"><button class="math-course-nav" data-course="${key}" aria-pressed="${subject==='math'&&mathCourse===key}"><span>${c.name}</span><small>${cards.length}</small></button><div class="math-type-nav">${Object.entries(MATH_CONTENT_TYPES).map(([type,label])=>`<button data-course="${key}" data-math-type="${type}" class="${subject==='math'&&mathCourse===key&&mathContentFilter===type?'selected':''}" aria-label="${c.name}${label}">${label}<small>${cards.filter(card=>card.contentType===type).length}</small></button>`).join('')}</div></div>`;}).join('')}</nav><nav aria-label="学习范围" class="nav-subjects"><button data-subject="english" class="subject-nav ${subject==='english'?'selected':''}">${subjectMark('english')}<span>英语</span><small>${data.cards.filter(c=>c.subject==='english').length}</small></button><button data-subject="all" class="subject-nav ${subject==='all'?'selected':''}">${icon('book')}<span>全部内容</span><small>${activeCards(data.cards).length}</small></button></nav>
     <button class="add-sidebar" data-action="add">${icon('plus')} 添加卡片</button>
-    <div class="sidebar-bottom"><div class="local-note">${icon('shield')}<p>资料属于你<small>保存在当前浏览器</small></p></div><a href="#backup" data-page="backup" aria-label="数据与备份" class="nav-item ${page==='backup'?'active':''}">${icon('backup')}<span>数据与备份</span></a><div class="sidebar-version">拾忆 v1.2.2 <span>温故，而知新</span></div></div></aside>
+    <div class="sidebar-bottom"><div class="local-note">${icon('shield')}<p>资料属于你<small>保存在当前浏览器</small></p></div><a href="#backup" data-page="backup" aria-label="数据与备份" class="nav-item ${page==='backup'?'active':''}">${icon('backup')}<span>数据与备份</span></a><div class="sidebar-version">拾忆 v${APP_VERSION} <span>温故，而知新</span></div></div></aside>
     <div class="workspace"><header class="topbar"><span class="breadcrumb">学习工作台 <span>/</span> <strong>${titles[page]}</strong></span><span class="save-status ${storageError?'error':''}"><i></i>${storageError?'保存需要处理':'本地保存'}</span></header><main id="main" tabindex="-1">${storageError?`<div class="error-banner">浏览器中的资料无法读取，原始内容仍保留。请前往 <button data-page="backup">数据与备份</button> 导出原始资料。</div>`:''}${content}</main><footer>回想一次，离牢牢记住更近一点。<span>免登录 · 浏览器本地保存</span></footer></div>`;
 }
 function heading(title, subtitle, action = '') { return `<div class="page-heading"><div><h1>${title}</h1><p>${subtitle}</p></div>${action}</div>`; }
@@ -114,8 +120,31 @@ function scopeControls() {
   return `<div class="scope-controls"><nav class="scope-courses" aria-label="选择学习部分"><button data-subject="all" aria-pressed="${subject==='all'}" class="scope-button ${subject==='all'?'selected':''}">全部 <small>${activeCards(data.cards).length}</small></button><button data-subject="english" aria-pressed="${subject==='english'}" class="scope-button ${subject==='english'?'selected':''}">英语 <small>${data.cards.filter(c=>c.subject==='english').length}</small></button>${courseButtons}</nav>${subject==='math'?`<div class="scope-types" role="group" aria-label="数学内容分类"><button data-content-type="all" aria-pressed="${mathContentFilter==='all'}" class="${mathContentFilter==='all'?'selected':''}">全部 <small>${countBase.length}</small></button>${Object.entries(MATH_CONTENT_TYPES).map(([key,label])=>`<button data-content-type="${key}" aria-pressed="${mathContentFilter===key}" class="${mathContentFilter===key?'selected':''}">${label}<small>${countBase.filter(c=>c.contentType===key).length}</small></button>`).join('')}</div>`:''}</div>`;
 }
 function changeScope(nextSubject,nextCourse='all',nextType='all') {
+  englishSpeech.cancel();
   subject=nextSubject;mathCourse=nextCourse;mathContentFilter=nextType;libraryPage=1;vocabularyFilter='all';search='';session=null;revealed=false;
   if(page!=='study'&&page!=='library')page='library';render();
+}
+function englishDirectionControls() {
+  if (subject !== 'english' && !selectedCards().some(card => card.subject === 'english')) return '';
+  const reverse = englishDirection() === 'zh-en';
+  return `<section class="english-direction" aria-label="英语背诵方向"><span>英语背诵</span><div class="direction-buttons" role="group" aria-label="选择英语背诵方向"><button data-english-direction="en-zh" aria-pressed="${!reverse}">英背中</button><button data-english-direction="zh-en" aria-pressed="${reverse}">中背英</button></div><p>${reverse ? '看中文，回想英文；揭晓后可播放英文读音。' : '看英文，回想中文；点击按钮可听英文读音。'}</p></section>`;
+}
+function updateSpeechStatus() {
+  const busy = ['loading', 'speaking'].includes(speechState.status);
+  const status = document.querySelector('#english-speech-status');
+  if (status) { status.textContent = speechState.message; status.dataset.state = speechState.status; }
+  document.querySelectorAll('[data-action="speak"]').forEach(button => {
+    button.setAttribute('aria-busy', String(busy));
+  });
+  const stop = document.querySelector('[data-action="stop-speech"]');
+  if (stop) stop.hidden = !busy;
+}
+function pronunciationControls(card) {
+  return `<div class="english-pronunciation"><div class="pronunciation-actions"><button class="button text speak" data-action="speak" data-id="${esc(card.id)}">${icon('speaker')} 播放英文读音</button><button class="button text stop-speech" data-action="stop-speech" hidden>停止朗读</button></div><span id="english-speech-status" class="speech-status" role="status" aria-live="polite"></span></div>`;
+}
+function showAnswer() {
+  englishSpeech.cancel(); revealed = true; render();
+  document.querySelector('.rating-3')?.focus({preventScroll:true});
 }
 function studyView() {
   const stats = getStats(selectedCards(),data.logs);
@@ -125,24 +154,26 @@ function studyView() {
   const card = session?.ids.length ? data.cards.find(c=>c.id===session.ids[0]) : null;
   const welcome = heading(session ? '专注于这一次回想。' : scopeName(), `${dateText(new Date())} · 先回想，再看答案`, `<button class="button secondary heading-add" data-action="add">${icon('plus')} 添加卡片</button>`);
   const plan = `<div class="plan-strip"><div><span class="plan-dot rust"></span>到期复习 <strong>${stats.due}</strong></div><div><span class="plan-dot green"></span>今日可学新卡 <strong>${q.filter(c=>c.schedule.reps===0).length}</strong></div><div><span class="plan-dot muted"></span>今日已回想 <strong>${todayUnique}</strong><span class="plan-unit">张</span></div><span class="plan-limit">每日新卡上限 ${data.settings.dailyNewLimit} 张</span></div>`;
-  const subjectPanel = `<aside class="study-aside"><section class="subject-summary"><h2>数学学习地图</h2>${Object.entries(MATH_COURSES).map(([key,c])=>{const cards=scopeCards(data.cards,{subject:'math',mathCourse:key});return `<button data-course="${key}" class="subject-summary-row"><span class="subject-mark math" aria-hidden="true">${c.symbol}</span><span><strong>${c.name}</strong><small>公式 ${cards.filter(card=>card.contentType==='formula').length} · 题型 ${cards.filter(card=>card.contentType==='problem').length}</small></span><span class="subject-summary-count">${cards.filter(card=>card.schedule.reps>0).length}<small>/ ${cards.length} 张已学</small></span></button>`;}).join('')}</section><section class="recall-note"><span class="note-glyph" aria-hidden="true">“</span><h2>${subject==='math'&&mathContentFilter==='problem'?'记方法，也记为什么。':'先回想，再看答案。'}</h2><p>${subject==='math'?'公式卡记住表达式与适用条件；题型卡先识别特征，再复述方法，最后核对例题步骤。':'不急着翻面。先试着说出词义，再结合例句检查自己的理解。'}</p><a href="#library" data-page="library">查看当前卡片 ${icon('arrow')}</a></section><div class="example-note">${icon('book')}数学基础库包含照片中的泰勒展开、积分公式，以及三部分的常见题型。可继续添加自己的课堂与练习笔记。</div></aside>`;
+  const subjectPanel = `<aside class="study-aside"><section class="subject-summary"><h2>数学学习地图</h2>${Object.entries(MATH_COURSES).map(([key,c])=>{const cards=scopeCards(data.cards,{subject:'math',mathCourse:key});return `<button data-course="${key}" class="subject-summary-row"><span class="subject-mark math" aria-hidden="true">${c.symbol}</span><span><strong>${c.name}</strong><small>公式 ${cards.filter(card=>card.contentType==='formula').length} · 题型 ${cards.filter(card=>card.contentType==='problem').length}</small></span><span class="subject-summary-count">${cards.filter(card=>card.schedule.reps>0).length}<small>/ ${cards.length} 张已学</small></span></button>`;}).join('')}</section><section class="recall-note"><span class="note-glyph" aria-hidden="true">“</span><h2>${subject==='math'&&mathContentFilter==='problem'?'记方法，也记为什么。':'先回想，再看答案。'}</h2><p>${subject==='math'?'公式卡记住表达式与适用条件；题型卡先识别特征，再复述方法，最后核对例题步骤。':englishDirection()==='zh-en'?'看中文释义，试着完整说出英文。揭晓后听读音，再跟读一次。':'不急着翻面。先试着说出词义，再结合例句检查自己的理解。'}</p><a href="#library" data-page="library">查看当前卡片 ${icon('arrow')}</a></section><div class="example-note">${icon('book')}数学基础库包含照片中的泰勒展开、积分公式，以及三部分的常见题型。可继续添加自己的课堂与练习笔记。</div></aside>`;
   let body;
   if (session && card) body = reviewView(card);
   else if (session) body = `<section class="study-card completion"><div class="completion-mark">${icon('check')}</div><h2>这一轮，记忆又深了一点。</h2><p>完成了 <strong>${session.completed}</strong> 次回想。已经为你安排好下一次复习。</p>${nextDue()}<div class="completion-actions"><button class="button primary" data-action="end">返回今日学习 ${icon('arrow')}</button><button class="button text" data-page="history">查看学习记录</button></div></section>`;
   else if (!selectedCards().length) body = `<section class="study-card welcome-card"><div class="ready-meta">你的知识库，从这里开始</div><h2>把值得记住的，<br>留在这里。</h2><p>写下一个问题和它的答案，开始第一次主动回忆。</p><button class="button primary" data-action="add">${icon('plus')} 创建第一张卡片</button></section>`;
   else if (!q.length) body = `<section class="study-card completion"><div class="completion-mark">${icon('check')}</div><h2>此刻的复习，完成了。</h2><p>给记忆一点沉淀的时间，到期后再来回想。</p>${nextDue()}<button class="button secondary" data-page="library">整理我的卡片 ${icon('arrow')}</button></section>`;
-  else {const first=q[0];body=`<section class="study-card welcome-card"><h2>学过的知识，<br>值得再想起一次。</h2><p>当前范围共 <strong>${selectedCards().length}</strong> 张卡片，今天安排 <strong>${q.length}</strong> 张。<br>新卡按每日上限安排，其余卡片可在“我的卡片”查看。</p><div class="question-peek"><span>${subjects[first.subject].name} · ${first.subject==='math'?`${MATH_COURSES[first.mathCourse].name} · ${MATH_CONTENT_TYPES[first.contentType]}`:first.tags?.[0]?esc(first.tags[0]):'回想问题'}</span><div class="math-content">${esc(first.kind==='cloze'?parseCloze(first.front).question:first.front)}</div></div><button class="button primary start-button" data-action="start">开始今日学习 ${icon('arrow')}</button><small class="keyboard-hint">先回想，再翻面，最后评价记忆</small></section>`;}
+  else {const first=q[0];body=`<section class="study-card welcome-card"><h2>学过的知识，<br>值得再想起一次。</h2><p>当前范围共 <strong>${selectedCards().length}</strong> 张卡片，今天安排 <strong>${q.length}</strong> 张。<br>新卡按每日上限安排，其余卡片可在“我的卡片”查看。</p><div class="question-peek"><span>${subjects[first.subject].name} · ${first.subject==='math'?`${MATH_COURSES[first.mathCourse].name} · ${MATH_CONTENT_TYPES[first.contentType]}`:first.tags?.[0]?esc(first.tags[0]):'回想问题'}</span><div class="math-content">${esc(getStudyContent(first, englishDirection()).question)}</div></div><button class="button primary start-button" data-action="start">开始今日学习 ${icon('arrow')}</button><small class="keyboard-hint">先回想，再翻面，最后评价记忆</small></section>`;}
   const progress = session ? `<div class="session-progress"><span>本轮进度 <strong>${session.completed} / ${session.total}</strong></span><div class="progress-track"><div style="width:${Math.min(100,session.completed/session.total*100)}%"></div></div><button class="button text" data-action="end">稍后继续</button></div>` : '';
-  return `${welcome}${scopeControls()}${plan}<div class="study-layout"><div class="study-main">${progress}${body}${session&&card?'<p class="shortcut-note"><kbd>空格</kbd> 显示答案 <span>·</span> <kbd>1</kbd>–<kbd>4</kbd> 评分 <span>·</span> <kbd>Z</kbd> 撤销</p>':'<div class="study-footnote">'+icon('clock')+'到期卡片优先，新卡按每日上限加入。每次评分后立即保存。</div>'}</div>${subjectPanel}</div>`;
+  return `${welcome}${scopeControls()}${englishDirectionControls()}${plan}<div class="study-layout"><div class="study-main">${progress}${body}${session&&card?'<p class="shortcut-note"><kbd>空格</kbd> 显示答案 <span>·</span> <kbd>1</kbd>–<kbd>4</kbd> 评分 <span>·</span> <kbd>Z</kbd> 撤销</p>':'<div class="study-footnote">'+icon('clock')+'到期卡片优先，新卡按每日上限加入。每次评分后立即保存。</div>'}</div>${subjectPanel}</div>`;
 }
 function nextDue() {
   const future=selectedCards().filter(c=>c.schedule.reps>0&&Date.parse(c.schedule.due)>Date.now()).sort((a,b)=>Date.parse(a.schedule.due)-Date.parse(b.schedule.due));
   return future.length?`<p class="next-due">${icon('clock')} 最近一次复习在 ${relative(Date.parse(future[0].schedule.due)-Date.now())}后</p>`:'';
 }
 function reviewView(card) {
-  const cloze = card.kind==='cloze'?parseCloze(card.front):null;
+  const content = getStudyContent(card, englishDirection(), revealed);
   const previews = revealed?previewRatings(card):[];
-  return `<section class="study-card review-card"><div class="review-meta"><span class="subject-label ${card.subject}">${card.subject==='math'?MATH_COURSES[card.mathCourse].name:subjects[card.subject].name}</span>${card.subject==='math'?`<span class="math-content-label">${MATH_CONTENT_TYPES[card.contentType]}</span>`:''}<span>${card.kind==='cloze'?'填空回忆':'问答回忆'} · ${card.schedule.reps?'复习':'新卡'}</span><button class="icon-button" data-action="edit" data-id="${esc(card.id)}" aria-label="编辑当前卡片">${icon('edit')}</button></div><div class="question-area"><p class="question-instruction">${cloze?'在心里补全空缺的内容':'试着在心里说出答案'}</p><h2 class="question math-content">${esc(cloze?cloze.question:card.front)}</h2>${card.subject==='english'?`<button class="button text speak" data-action="speak" data-id="${esc(card.id)}">${icon('speaker')} 朗读</button>`:''}</div>${revealed?`<div class="answer-area"><div class="answer-label">参考答案</div><div class="answer math-content">${esc(cloze?cloze.answer:card.back)}</div>${cloze&&card.back?`<div class="answer-explanation math-content">${esc(card.back)}</div>`:''}${card.notes?`<div class="card-notes math-content"><strong>理解与提示</strong><p>${esc(card.notes)}</p></div>`:''}</div><div class="rating-area"><p>这次，你记得怎么样？<span>按真实感受选择</span></p><div class="rating-buttons">${previews.map(p=>`<button class="rating rating-${p.rating}" data-rating="${p.rating}"><span><kbd>${p.rating}</kbd>${ratingNames[p.rating]}</span><small>${relative(p.intervalMs)}后</small></button>`).join('')}</div></div>`:`<div class="reveal-area"><p>想不起来也没关系，先尝试，再揭晓。</p><button class="button primary reveal-button" data-action="reveal">显示答案 <span class="key-on-dark">空格</span></button></div>`}</section>`;
+  const english = card.subject === 'english';
+  const instruction = english && !content.isReverse && card.kind !== 'cloze' ? '根据英文，回想中文含义' : content.instruction;
+  return `<section class="study-card review-card"><div class="review-meta"><span class="subject-label ${card.subject}">${card.subject==='math'?MATH_COURSES[card.mathCourse].name:subjects[card.subject].name}</span>${card.subject==='math'?`<span class="math-content-label">${MATH_CONTENT_TYPES[card.contentType]}</span>`:''}${english?`<span class="english-mode-label">${content.isReverse?'中背英':'英背中'}</span>`:''}<span>${card.kind==='cloze'?(content.isReverse?'整句回忆':'填空回忆'):'问答回忆'} · ${card.schedule.reps?'复习':'新卡'}</span><button class="icon-button" data-action="edit" data-id="${esc(card.id)}" aria-label="编辑当前卡片">${icon('edit')}</button></div><div class="question-area"><p class="question-instruction">${esc(instruction)}</p><h2 class="question math-content" ${english?`lang="${content.isReverse?'zh-CN':'en'}"`:''}>${esc(content.question)}</h2>${english&&!content.isReverse?pronunciationControls(card):''}${content.isReverse&&!revealed?'<p class="pronunciation-hint">揭晓英文答案后，可听读音并跟读。</p>':''}</div>${revealed?`<div class="answer-area"><div class="answer-label">${esc(content.answerLabel)}</div><div class="answer math-content" ${content.isReverse?'lang="en"':''}>${esc(content.answer)}</div>${content.isReverse?pronunciationControls(card):''}${content.explanation?`<div class="answer-explanation math-content">${esc(content.explanation)}</div>`:''}${card.notes?`<div class="card-notes math-content"><strong>理解与提示</strong><p>${esc(card.notes)}</p></div>`:''}</div><div class="rating-area"><p>这次，你记得怎么样？<span>按真实感受选择</span></p><div class="rating-buttons">${previews.map(p=>`<button class="rating rating-${p.rating}" data-rating="${p.rating}"><span><kbd>${p.rating}</kbd>${ratingNames[p.rating]}</span><small>${relative(p.intervalMs)}后</small></button>`).join('')}</div></div>`:`<div class="reveal-area"><p>想不起来也没关系，先尝试，再揭晓。</p><button class="button primary reveal-button" data-action="reveal">显示答案 <span class="key-on-dark">空格</span></button></div>`}</section>`;
 }
 function filteredLibraryCards() {
   return selectedCards().filter(c=>vocabularyFilter==='all'||c.subject==='english'&&c.tags.includes(vocabularyFilter==='word'?'单词':'词组'))
@@ -187,13 +218,16 @@ function backupView() {
 function render() {
   app.innerHTML=shell(({study:studyView,library:libraryView,history:historyView,backup:backupView})[page]());
   math();
+  updateSpeechStatus();
 }
 function navigate(next) {
   if (!['study','library','history','backup'].includes(next)) return;
+  englishSpeech.cancel();
   page=next; history.replaceState(null,'',`#${next}`); render();
   document.querySelector('#main').focus({preventScroll:true}); window.scrollTo({top:0,behavior:'instant'});
 }
 function openEditor(id) {
+  englishSpeech.cancel();
   editingId=id || null;
   const c=data.cards.find(c=>c.id===id);
   returnFocus=document.activeElement;
@@ -215,6 +249,7 @@ function confirmAction(title, body, callback, label='确认删除') {
 }
 function download(name,text) { const blob=new Blob([text],{type:'application/json;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000); }
 function undoReview() {
+  englishSpeech.cancel();
   if(!lastReview)return notify('目前没有可撤销的评分。');
   const current=data.cards.find(c=>c.id===lastReview.before.id);
   if(!current||current.updatedAt!==lastReview.after.updatedAt)return notify('这张卡片已修改，无法撤销这次评分。');
@@ -224,6 +259,7 @@ function undoReview() {
 }
 function rate(rating) {
   if(!revealed||!session?.ids.length)return;
+  englishSpeech.cancel();
   const before=data.cards.find(c=>c.id===session.ids[0]);if(!before)return;
   const result=reviewCard(before,Number(rating));
   if(persist({...data,cards:data.cards.map(c=>c.id===before.id?result.card:c),logs:[...data.logs,result.log]})){
@@ -232,10 +268,11 @@ function rate(rating) {
   }
 }
 function speak(id) {
-  if(!('speechSynthesis' in window))return notify('当前浏览器不支持朗读，请在支持语音的浏览器中使用。');
-  const card=data.cards.find(c=>c.id===id);if(!card)return;
-  const utterance=new SpeechSynthesisUtterance((card.kind==='cloze'?(revealed?parseCloze(card.front).answer:parseCloze(card.front).question):card.front).replace(/\$[^$]*\$/g,''));
-  utterance.lang='en-US';utterance.rate=.85;speechSynthesis.cancel();speechSynthesis.speak(utterance);
+  const card=data.cards.find(c=>c.id===id);
+  if(page!=='study'||!card||session?.ids[0]!==id||card.subject!=='english')return;
+  const text=getStudyContent(card,englishDirection(),revealed).speechText;
+  if(!text)return;
+  englishSpeech.speak(text.replace(/\$[^$]*\$/g,''));
 }
 document.addEventListener('click',async event=>{
   const el=event.target.closest('button,a,label');if(!el)return;
@@ -243,6 +280,15 @@ document.addEventListener('click',async event=>{
   if(el.dataset.course){changeScope('math',el.dataset.course,el.dataset.mathType||'all');return;}
   if(el.dataset.contentType){changeScope('math',mathCourse,el.dataset.contentType);return;}
   if(el.dataset.subject){changeScope(el.dataset.subject);return;}
+  if(el.dataset.englishDirection){
+    const direction=el.dataset.englishDirection;
+    if(!['en-zh','zh-en'].includes(direction)||direction===englishDirection())return;
+    if(persist({...data,settings:{...data.settings,englishDirection:direction}})){
+      englishSpeech.cancel();revealed=false;render();
+      document.querySelector(`[data-english-direction="${direction}"]`)?.focus({preventScroll:true});
+    }
+    return;
+  }
   if(el.dataset.rating){rate(el.dataset.rating);return;}
   const id=el.dataset.id;
   switch(el.dataset.action){
@@ -251,11 +297,12 @@ document.addEventListener('click',async event=>{
     case 'close-editor':closeEditor();break;
     case 'close-confirmation':confirmation.close();break;
     case 'delete':confirmAction('删除这张卡片？','卡片将从知识库移除，已有复习记录会保留。建议先导出备份。',()=>{if(persist({...data,cards:data.cards.filter(c=>c.id!==id)})){if(session)session.ids=session.ids.filter(x=>x!==id);render();notify('卡片已删除。');}});break;
-    case 'start':{const ids=queue().map(c=>c.id);if(ids.length){session={ids,total:ids.length,completed:0};revealed=false;render();document.querySelector('.reveal-button')?.focus({preventScroll:true});}break;}
-    case 'reveal':revealed=true;render();document.querySelector('.rating-3')?.focus({preventScroll:true});break;
-    case 'end':session=null;revealed=false;render();break;
+    case 'start':{englishSpeech.cancel();const ids=queue().map(c=>c.id);if(ids.length){session={ids,total:ids.length,completed:0};revealed=false;render();document.querySelector('.reveal-button')?.focus({preventScroll:true});}break;}
+    case 'reveal':showAnswer();break;
+    case 'end':englishSpeech.cancel();session=null;revealed=false;render();break;
     case 'undo':undoReview();break;
     case 'speak':speak(id);break;
+    case 'stop-speech':englishSpeech.cancel();break;
     case 'clear-filters':search='';statusFilter='all';vocabularyFilter='all';libraryPage=1;render();break;
     case 'export':try{download(`拾忆备份-${new Date().toISOString().slice(0,10)}.json`,exportBackup(data));notify('备份已下载，包含全部卡片和复习进度。');}catch(error){notify(error.message);}break;
     case 'copy-backup':{
@@ -346,14 +393,16 @@ document.addEventListener('change',async event=>{
 });
 document.addEventListener('keydown',event=>{
   if(editor.open||confirmation.open||event.ctrlKey||event.metaKey||event.altKey||['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName))return;
+  if(event.code==='Space'&&event.target.closest('button,a,summary,[role="button"]'))return;
   if(page==='study'&&session?.ids.length){
-    if(event.code==='Space'&&!revealed){event.preventDefault();revealed=true;render();document.querySelector('.rating-3')?.focus({preventScroll:true});}
+    if(event.code==='Space'&&!revealed){event.preventDefault();showAnswer();}
     else if(/^[1-4]$/.test(event.key)&&revealed){event.preventDefault();rate(event.key);}
   }
   if(event.key.toLowerCase()==='z'&&page==='study'){event.preventDefault();undoReview();}
 });
 window.addEventListener('storage',event=>{if(event.key===STORAGE_KEY){notify('另一个标签页更新了资料。请刷新后继续，以读取最新进度。');}});
-window.addEventListener('hashchange',()=>{const next=location.hash.slice(1);if(['study','library','history','backup'].includes(next)){page=next;render();}});
+window.addEventListener('hashchange',()=>{const next=location.hash.slice(1);if(['study','library','history','backup'].includes(next)){englishSpeech.cancel();page=next;render();}});
+window.addEventListener('pagehide',()=>englishSpeech.cancel());
 setInterval(()=>{if(page==='study'&&!session&&!editor.open&&!confirmation.open)render();},60000);
 const initial=location.hash.slice(1);if(['study','library','history','backup'].includes(initial))page=initial;
 if(loaded.firstRun){try{saveData(data);}catch(error){storageError=error.message;}}

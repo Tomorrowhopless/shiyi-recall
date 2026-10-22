@@ -99,6 +99,8 @@ Study cards use paper, a border, and a spacious reading area. Search fields use 
 
 Progress grows with the authored `cubic-bezier(.16,1,.3,1)` easing. Reduced-motion preference removes animations and transitions. Selection, caret, scrollbar, and focus colors belong to the same palette.
 
+English study uses a segmented direction control for 英背中 and 中背英 in the existing forest/paper palette, with explicit pressed states and at least 44px touch targets on mobile. 中背英 hides the English answer and pronunciation control until reveal; pronunciation status provides accessible live feedback. Both directions reuse the same card identity and shared review progress.
+
 ## Do's and Don'ts
 
 - Do keep the reading prompt and next study action prominent.
