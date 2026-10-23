@@ -7,7 +7,7 @@ import { activeCards, scopeCards, upgradeMathLibrary } from './math-library.js';
 import { removableExamples, prepareImport } from './import-workflow.js';
 import { loadData, saveData, recoverData, STORAGE_KEY } from './storage.js';
 import { getStudyContent } from './english-study.js';
-import { createEnglishSpeech } from './english-speech.js';
+import { createEnglishPlayback } from './english-playback.js';
 import { createEnglishAutoplay } from './english-autoplay.js';
 import { getEnglishSequence } from './english-sequence.js';
 import { version as APP_VERSION } from '../package.json';
@@ -41,7 +41,7 @@ let toastTimer;
 let editingId = null;
 let returnFocus = null;
 let speechState = { status: 'idle', message: '' };
-const englishSpeech = createEnglishSpeech({ onState(state) { speechState = state; updateSpeechStatus(); } });
+const englishSpeech = createEnglishPlayback({ onState(state) { speechState = state; updateSpeechStatus(); } });
 const englishAutoplay = createEnglishAutoplay({ speak: text => englishSpeech.speak(text), cancel: () => englishSpeech.cancel() });
 const englishDirection = () => data.settings.englishDirection || 'en-zh';
 if(!storageError&&!loaded.firstRun){
